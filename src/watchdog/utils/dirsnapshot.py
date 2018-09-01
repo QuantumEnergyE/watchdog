@@ -206,6 +206,7 @@ class DirectorySnapshot(object):
         st = stat(path)
         self._stat_info[path] = st
         self._inode_to_path[(st.st_ino, st.st_dev)] = path
+        self._mount = os.path.ismount(path)
 
         def walk(root):
             try:
@@ -276,6 +277,10 @@ class DirectorySnapshot(object):
             from a snapshot.
         """
         return self._stat_info[path]
+
+    @property
+    def mount(self):
+        return self._mount
 
     def __sub__(self, previous_dirsnap):
         """Allow subtracting a DirectorySnapshot object instance from

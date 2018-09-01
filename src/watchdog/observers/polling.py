@@ -35,6 +35,7 @@ Classes
 """
 
 from __future__ import with_statement
+import errno
 import os
 import threading
 from functools import partial
@@ -57,6 +58,10 @@ from watchdog.events import (
     FileCreatedEvent,
     FileModifiedEvent
 )
+
+DEFAULT_RESUMABLE_ERRNO = (errno.EACCES, errno.EHOSTDOWN, errno.ESTALE)
+SUPPORT_ENOENT_RECOVERY = False
+SUPPORT_UNMOUNT_RECOVERY = False
 
 
 class PollingEmitter(EventEmitter):
@@ -90,9 +95,22 @@ class PollingEmitter(EventEmitter):
             # Update snapshot.
             try:
                 new_snapshot = self._take_snapshot()
-            except OSError:
-                self.queue_event(DirDeletedEvent(self.watch.path))
-                self.stop()
+            except OSError as e:
+                if e.errno in DEFAULT_RESUMABLE_ERRNO:
+                    return
+                elif e.errno == errno.ENOENT:  # The monitor directory has been removed.
+                    if not SUPPORT_ENOENT_RECOVERY:
+                        self.queue_event(DirDeletedEvent(self.watch.path))
+                        self.stop()
+                    return
+                else:
+                    raise
+            if self._snapshot.mount != new_snapshot.mount:
+                # The mount state of monitor directory has changed, such as a local directory is
+                # mounted or a NAS directory is unmounted.
+                if not SUPPORT_UNMOUNT_RECOVERY:
+                    self.queue_event(DirDeletedEvent(self.watch.path))
+                    self.stop()
                 return
 
             events = DirectorySnapshotDiff(self._snapshot, new_snapshot)
